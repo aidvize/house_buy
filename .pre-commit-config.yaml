@@ -9,6 +9,8 @@ repos:
         exclude: ^(.ipython)
         require_serial: true
         pass_filenames: false
+        files: \.py$
+
       - id: isort
         name: "isort check"
         language: system
@@ -16,9 +18,12 @@ repos:
         args: [--check]
         verbose: true
         pass_filenames: false
+        files: \.py$
+
       - id: flake8
         name: "Flake8 check"
         language: system
         entry:  bash -c 'exec $USE_PYTHON -m flake8'
         verbose: true
         pass_filenames: false
+        files: \.py$
