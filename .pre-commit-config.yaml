@@ -4,26 +4,28 @@ repos:
       - id: black
         name: "black check"
         language: system
-        entry:  bash -c 'exec $USE_PYTHON -m black . --check -q -tpy38'
+        entry: bash -c 'exec $USE_PYTHON -m black . --check -q -tpy38'
         verbose: true
-        exclude: ^(.ipython)
+        exclude: '(__init__.py$|^.ipython)'
         require_serial: true
         pass_filenames: false
-        files: \.py$
+        files: '\.py$'
 
       - id: isort
         name: "isort check"
         language: system
-        entry:  bash -c 'exec $USE_PYTHON -m isort . --check -q'
+        entry: bash -c 'exec $USE_PYTHON -m isort . --check -q'
         args: [--check]
         verbose: true
+        exclude: '__init__.py$'
         pass_filenames: false
-        files: \.py$
+        files: '\.py$'
 
       - id: flake8
         name: "Flake8 check"
         language: system
-        entry:  bash -c 'exec $USE_PYTHON -m flake8'
+        entry: bash -c 'exec $USE_PYTHON -m flake8'
         verbose: true
+        exclude: '__init__.py$'
         pass_filenames: false
-        files: \.py$
+        files: '\.py$'
