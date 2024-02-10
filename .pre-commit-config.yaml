@@ -24,7 +24,7 @@ repos:
       - id: flake8
         name: "Flake8 check"
         language: system
-        entry: flake8 --check -q -tpy38
+        entry: flake8 .
         verbose: true
         exclude: '__init__.py$'
         pass_filenames: false
