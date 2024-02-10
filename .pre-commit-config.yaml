@@ -4,7 +4,7 @@ repos:
       - id: black
         name: "black check"
         language: system
-        entry: bash -c 'exec $USE_PYTHON -m black . --check -q -tpy38'
+        entry: black . --check -q -tpy38
         verbose: true
         exclude: '(__init__.py$|^.ipython)'
         require_serial: true
