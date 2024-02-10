@@ -1,0 +1,16 @@
+name: Pull Request Linter
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  pr-lint:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Pull Request Linter
+      uses: MorrisonCole/pr-lint-action@v1.7.0
+      with:
+        title-regex: '^(fix|feat|chore|docs|style|refactor|perf|test): .{1,50}$'
+        on-failed-regex-comment: "Please ensure the PR title matches the regex: `^(fix|feat|chore|docs|style|refactor|perf|test): .{1,50}$`"
+        github-token: ${{ secrets.GITHUB_TOKEN }}
