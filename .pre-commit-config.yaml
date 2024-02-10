@@ -14,7 +14,7 @@ repos:
       - id: isort
         name: "isort check"
         language: system
-        entry: bash -c 'exec $USE_PYTHON -m isort . --check -q'
+        entry: isort . --check -q -tpy38
         args: [--check]
         verbose: true
         exclude: '__init__.py$'
@@ -24,7 +24,7 @@ repos:
       - id: flake8
         name: "Flake8 check"
         language: system
-        entry: bash -c 'exec $USE_PYTHON -m flake8'
+        entry: flake8 . --check -q -tpy38
         verbose: true
         exclude: '__init__.py$'
         pass_filenames: false
