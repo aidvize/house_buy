@@ -1,10 +1,93 @@
+import functools
 import json
 import time
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
+import psutil
 import requests
+import yaml
 from bs4 import BeautifulSoup
+from memory_profiler import memory_usage
+
+
+def performance_metrics(func):
+    """
+    A decorator that measures and prints the performance metrics of the decorated function,
+    and saves these metrics to a JSON file in the 'metrics' folder.
+    Metrics include elapsed time, CPU usage, and memory usage during the function's execution.
+
+    Parameters:
+    - func (Callable): The function to measure. It can accept any number of positional
+      and keyword arguments.
+
+    Returns:
+    - Callable: A wrapper function that, when called, executes the decorated function,
+      measures its performance, prints and saves its metrics, and returns the function's result.
+    """
+
+    @functools.wraps(func)
+    def wrapper_performance_metrics(*args, **kwargs):
+        # Record the start time and CPU times
+        start_time = time.time()
+        start_cpu = psutil.cpu_percent(interval=None)
+
+        # Record memory usage before execution
+        mem_before = memory_usage(-1, interval=0.1, timeout=1)
+
+        # Execute the function
+        result = func(*args, **kwargs)
+
+        # Record the end time, CPU times, and memory usage after execution
+        end_time = time.time()
+        end_cpu = psutil.cpu_percent(interval=None)
+        mem_after = memory_usage(-1, interval=0.1, timeout=1)
+
+        # Calculate metrics
+        elapsed_time = end_time - start_time
+        cpu_usage = end_cpu - start_cpu
+        memory_used = max(mem_after) - min(mem_before)
+
+        # Prepare the metrics dictionary
+        metrics = {
+            "file_executed": func.__name__,
+            "date_executed": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "elapsed_time_seconds": elapsed_time,
+            "cpu_percent_usage": cpu_usage,
+            "memory_usage_mb": memory_used,
+        }
+
+        # Define the filename for the metrics JSON file
+        metrics_file_path = Path(
+            f"metrics/{func.__name__}_metrics_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
+        )
+
+        # Create the 'metrics' directory if it doesn't exist
+        metrics_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Save metrics to the JSON file
+        with metrics_file_path.open("w", encoding="utf-8") as f:
+            json.dump(metrics, f, ensure_ascii=False, indent=4)
+
+        return result
+
+    return wrapper_performance_metrics
+
+
+def load_config(
+    config_path=".github/workflows/config_template.yaml",
+):
+    """
+    Load the YAML configuration file.
+
+    Parameters:
+    - config_path (str): Path to the YAML configuration file.
+
+    Returns:
+    - dict: The configuration parameters.
+    """
+    with open(config_path, "r") as file:
+        return yaml.safe_load(file)
 
 
 def get_headers():

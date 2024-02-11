@@ -6,3 +6,7 @@ flake8~=7.0.0
 pandas~=2.1.4
 requests~=2.31.0
 beautifulsoup4~=4.12.2
+sqlalchemy~=2.0.25
+python-dotenv~=1.0.1
+pyyaml~=6.0.1
+psutil~=5.9.8
