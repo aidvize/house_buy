@@ -11,6 +11,6 @@ jobs:
       - name: Lint PR Title
         uses: MorrisonCole/pr-lint-action@v1.7.0
         with:
-          regex: '^([fix]|[feat]|[chore]|[docs]|[style]|[refactor]|[perf]|[test]): .{1,50}$'
-          token: ${{ secrets.GITHUB_TOKEN }}
+          title-regex: '^([fix]|[feat]|[chore]|[docs]|[style]|[refactor]|[perf]|[test]): .{1,50}$'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
           ignoreLabels: 'skip-lint'
