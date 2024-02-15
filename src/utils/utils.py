@@ -74,9 +74,7 @@ def performance_metrics(func):
     return wrapper_performance_metrics
 
 
-def load_config(
-    config_path=".github/workflows/config_template.yaml",
-):
+def load_config(config_path=".github/workflows/parameters.yaml"):
     """
     Load the YAML configuration file.
 
@@ -103,102 +101,97 @@ def get_headers():
     }
 
 
-def make_request(url, headers):
+def imovirtual(url: str, max_pages: int) -> dict:
     """
-    Performs an HTTP GET request to the specified URL using the provided headers.
+    Scrapes listing titles and links from Imovirtual website for a specified number of pages.
+
+    This function navigates through the specified number of pages on the Casa Sapo website,
+    collecting titles and corresponding links for property listings. It applies a respectful
+    delay between requests to avoid overloading the server. If no more listings are found on
+    a page, the scraping stops early. Encountered errors during requests are caught and logged.
 
     Parameters:
-        - url (str): The URL to which the GET request is made.
-        - headers (dict): The headers to include in the request.
+    - url (str): The base URL to scrape, formatted to include pagination.
+    - max_pages (int): The maximum number of pages to scrape.
 
     Returns:
-        requests.Response: The response object from the request if successful, otherwise None.
+    - dict: A dictionary with listing titles as keys and corresponding links
     """
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()  # Raises an exception for 4XX or 5XX errors
-        return response
-    except requests.exceptions.RequestException as e:
-        print(f"Request failed: {e}")
-        return None
-
-
-def parse_html(html_content):
-    """
-    Parses the given HTML content string using BeautifulSoup.
-
-    Parameters:
-        - html_content (str): The HTML content to parse.
-
-    Returns:
-        BeautifulSoup: The BeautifulSoup object parsed from the HTML content.
-    """
-    return BeautifulSoup(html_content, "html.parser")
-
-
-def extract_listing_data(soup):
-    """
-    Extracts and returns the listing data such as titles and links from the parsed HTML.
-
-    Parameters:
-        - soup (BeautifulSoup): The BeautifulSoup object containing the parsed HTML data.
-
-    Returns:
-        tuple: A tuple containing two lists (titles, links), or (None, None) if no data.
-    """
-    titles = []
+    title = []
     links = []
 
-    span_tags = soup.find_all("span", class_="offer-item-title")
-    if not span_tags:
-        return None, None  # Indicates no more data to scrape
+    for num in range(1, max_pages + 1):
+        try:
+            page = requests.get(f"{url}{num}", headers=get_headers())
+            soup = BeautifulSoup(page.text, "html.parser")
 
-    for span_tag in span_tags:
-        titles.append(span_tag.text.strip())
-        a_tag = span_tag.find_parent("a")
-        if a_tag and a_tag.has_attr("href"):
-            links.append(a_tag["href"])
+            span_tags = soup.find_all("span", class_="offer-item-title")
 
-    return titles, links
-
-
-def scrape_imovirtual_listings(base_url, start_page=1, max_pages=10):
-    """
-    Scrapes property listings from a given URL, iterating through a defined number of pages.
-
-    Parameters:
-        - base_url (str): The base URL to start scraping from.
-        - start_page (int): The starting page number for scraping.
-        - max_pages (int): The maximum number of pages to scrape.
-
-    Returns:
-        tuple: Two lists containing the titles and links of the listings extracted.
-    """
-    headers = get_headers()
-    titles = []
-    links = []
-
-    for num in range(start_page, start_page + max_pages):
-        url = f"{base_url}?page={num}"
-        response = make_request(url, headers)
-
-        if response:
-            soup = parse_html(response.text)
-            page_titles, page_links = extract_listing_data(soup)
-
-            if page_titles is None:  # No more listings found
-                print(f"No more results found at page {num}. Stopping.")
+            # Dynamic stop condition: No listings found on page
+            if not span_tags:
                 break
 
-            titles.extend(page_titles)
-            links.extend(page_links)
+            for span_tag in span_tags:
+                title.append(span_tag.text.strip())
+                a_tag = span_tag.find_parent("a")
+                if a_tag and a_tag.has_attr("href"):
+                    links.append(a_tag["href"])
 
             time.sleep(1)  # Respectful delay between requests
 
-    return titles, links
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed: {e}")
+            break
+    data = {title: link for title, link in zip(title, links)}
+    return data
 
 
-def save_to_json(data):
+def casa_sapo(url: str, max_pages: int) -> dict:
+    """
+    Scrapes listing titles and links from Casa Sapo website for a specified number of pages.
+
+    This function navigates through the specified number of pages on the Casa Sapo website,
+    collecting titles and corresponding links for property listings. It applies a respectful
+    delay between requests to avoid overloading the server. If no more listings are found on
+    a page, the scraping stops early. Encountered errors during requests are caught and logged.
+
+    Parameters:
+    - url (str): The base URL to scrape, formatted to include pagination.
+    - max_pages (int): The maximum number of pages to scrape.
+
+    Returns:
+    - dict: A dictionary with listing titles as keys and corresponding links
+    """
+    title = []
+    links = []
+
+    for num in range(1, max_pages + 1):
+        try:
+            page = requests.get(f"{url}{num}", headers=get_headers())
+            soup = BeautifulSoup(page.text, "html.parser")
+
+            span_tags = soup.find_all("div", class_="property-type")
+
+            # Dynamic stop condition: No listings found on page
+            if not span_tags:
+                break
+
+            for span_tag in span_tags:
+                title.append(span_tag.text.strip())
+                a_tag = span_tag.find_parent("a")
+                if a_tag and a_tag.has_attr("href"):
+                    links.append(a_tag["href"][112:])
+
+            time.sleep(1)  # Respectful delay between requests
+
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed: {e}")
+            break
+    data = {title: link for title, link in zip(title, links)}
+    return data
+
+
+def save_to_json(data: dict, page: str):
     """
     Saves the given data to a JSON file. If the target directory doesn't exist,
     it will be created.
@@ -211,8 +204,7 @@ def save_to_json(data):
     today = date.today()
 
     # Ensure file_path is a Path object
-    file_path = Path(f"raw/scraped_data_{today}.json")
-
+    file_path = Path(f"data/raw/{page}_{today}.json")
     # Create the target directory if it doesn't exist
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -220,6 +212,5 @@ def save_to_json(data):
     try:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
-        print(f"Data successfully saved to {file_path}")
     except Exception as e:
         print(f"Error saving data to JSON: {e}")
