@@ -6,8 +6,8 @@ database:
 
 imovirtual:
   base_url: "https://www.imovirtual.com/comprar/apartamento/?search%5Bregion_id%5D=11&page="
-  max_pages: 5
+  max_pages: 1000
 
 casa_sapo:
   base_url: "https://casa.sapo.pt/comprar-apartamentos/lisboa/?pn="
-  max_pages: 5
+  max_pages: 1000

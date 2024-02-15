@@ -1,13 +1,17 @@
 import functools
 import json
+import os
+import re
 import time
 from datetime import date, datetime
 from pathlib import Path
 
+import boto3
 import psutil
 import requests
 import yaml
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 from memory_profiler import memory_usage
 
 
@@ -15,7 +19,6 @@ def performance_metrics(func):
     """
     A decorator that measures and prints the performance metrics of the decorated function,
     and saves these metrics to a JSON file in the 'metrics' folder.
-    Metrics include elapsed time, CPU usage, and memory usage during the function's execution.
 
     Parameters:
     - func (Callable): The function to measure. It can accept any number of positional
@@ -59,7 +62,7 @@ def performance_metrics(func):
 
         # Define the filename for the metrics JSON file
         metrics_file_path = Path(
-            f"metrics/{func.__name__}_metrics_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
+            f"data/metrics/{func.__name__}_metrics_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
         )
 
         # Create the 'metrics' directory if it doesn't exist
@@ -74,7 +77,7 @@ def performance_metrics(func):
     return wrapper_performance_metrics
 
 
-def load_config(config_path=".github/workflows/parameters.yaml"):
+def load_config(config_path="conf/parameters.yaml"):
     """
     Load the YAML configuration file.
 
@@ -86,6 +89,29 @@ def load_config(config_path=".github/workflows/parameters.yaml"):
     """
     with open(config_path, "r") as file:
         return yaml.safe_load(file)
+
+
+def load_env(env_path=".env"):
+    """
+    Load the .ENV configuration file.
+
+    Parameters:
+    - env_path (str): Path to the .env configuration file.
+
+    Returns:
+    - bucket (str): Bucket name
+    - access_key (str): AWS Access Key
+    - access_key (str): AWS Secret Key
+    """
+    # Load environment variables from .env file
+    load_dotenv()
+
+    # Retrieve the environment variables
+    bucket_name = os.getenv("BUCKET")
+    aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+    return bucket_name, aws_access_key, aws_secret_key
 
 
 def get_headers():
@@ -104,11 +130,6 @@ def get_headers():
 def imovirtual(url: str, max_pages: int) -> dict:
     """
     Scrapes listing titles and links from Imovirtual website for a specified number of pages.
-
-    This function navigates through the specified number of pages on the Casa Sapo website,
-    collecting titles and corresponding links for property listings. It applies a respectful
-    delay between requests to avoid overloading the server. If no more listings are found on
-    a page, the scraping stops early. Encountered errors during requests are caught and logged.
 
     Parameters:
     - url (str): The base URL to scrape, formatted to include pagination.
@@ -142,6 +163,7 @@ def imovirtual(url: str, max_pages: int) -> dict:
         except requests.exceptions.RequestException as e:
             print(f"Request failed: {e}")
             break
+        print(num)
     data = {title: link for title, link in zip(title, links)}
     return data
 
@@ -149,11 +171,6 @@ def imovirtual(url: str, max_pages: int) -> dict:
 def casa_sapo(url: str, max_pages: int) -> dict:
     """
     Scrapes listing titles and links from Casa Sapo website for a specified number of pages.
-
-    This function navigates through the specified number of pages on the Casa Sapo website,
-    collecting titles and corresponding links for property listings. It applies a respectful
-    delay between requests to avoid overloading the server. If no more listings are found on
-    a page, the scraping stops early. Encountered errors during requests are caught and logged.
 
     Parameters:
     - url (str): The base URL to scrape, formatted to include pagination.
@@ -180,13 +197,18 @@ def casa_sapo(url: str, max_pages: int) -> dict:
                 title.append(span_tag.text.strip())
                 a_tag = span_tag.find_parent("a")
                 if a_tag and a_tag.has_attr("href"):
-                    links.append(a_tag["href"][112:])
+                    href = a_tag["href"]
+                    # Use regular expression to find URLs starting with "https://casa.sapo.pt"
+                    match = re.search(r'(https://casa\.sapo\.pt[^"]*)', href)
+                    if match:
+                        links.append(match.group(0))  # Append the full matching URL
 
             time.sleep(1)  # Respectful delay between requests
 
         except requests.exceptions.RequestException as e:
             print(f"Request failed: {e}")
             break
+        print(num)
     data = {title: link for title, link in zip(title, links)}
     return data
 
@@ -214,3 +236,21 @@ def save_to_json(data: dict, page: str):
             json.dump(data, f, ensure_ascii=False, indent=4)
     except Exception as e:
         print(f"Error saving data to JSON: {e}")
+
+
+def upload_file_s3(bucket: str, access_key: str, secret_key: str):
+    """
+    Uploads file to S3 bucket using S3 client object
+
+    Parameters:
+        - bucket (str): Bucket name
+        - access_key (str): AWS Access Key
+        - access_key (str): AWS Secret Key
+    """
+    s3 = boto3.client("s3", aws_access_key_id=access_key, aws_secret_access_key=secret_key)
+    bucket_name = bucket
+
+    for file in os.listdir():
+        if file.endswith(".json"):
+            file_name = os.path.join(file)
+            s3.upload_file(file_name, bucket_name, f"raw/{file_name}")
