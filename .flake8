@@ -1,2 +1,4 @@
 [flake8]
-max-line-length = 100
+max-line-length=100
+exclude=.git,.ipython,__init__.py
+ignotr=E402,E501,W503,E731,W606,E203,E231
