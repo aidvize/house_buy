@@ -1,5 +1,12 @@
 from src.utils import utils
-from src.utils.utils import load_config, load_env, performance_metrics, save_to_json, upload_file_s3
+from src.utils.utils import (
+    load_config,
+    load_env,
+    performance_metrics,
+    remove_duplicates,
+    save_to_json,
+    upload_file_s3,
+)
 
 
 @performance_metrics
@@ -19,8 +26,8 @@ def main(page: str):
     bucket_name, aws_access_key, aws_secret_key = load_env()
 
     # Retrieve base URL and maximum number of pages to scrape from the configuration
-    base_url = config[page]["base_url"]
-    max_pages = config[page]["max_pages"]
+    base_url = config["url"][page]
+    typology = config["typology"][page]
 
     # Construct the function name as a string
     func_name = f"{page}"
@@ -33,14 +40,18 @@ def main(page: str):
         print(f"Function {func_name} not found in utils module.")
         return
 
-    # Scrape data, save to JSON, and upload to S3
-    data = func(base_url, max_pages=max_pages)
-    save_to_json(data, f"{page}")
-    upload_file_s3(bucket_name, aws_access_key, aws_secret_key)
+    # Scrape data, remove duplicates, save to JSON, and upload to S3
+    for typ in typology:
+        data = func(base_url, typ)
+        res = remove_duplicates(data)
+        save_to_json(res, f"{page}", typ)
+        upload_file_s3(bucket_name, aws_access_key, aws_secret_key)
 
 
 if __name__ == "__main__":
-    try:
-        main("imovirtual")
-    except BaseException as e:
-        print(f"Error: {e}")
+    pages_to_scrape = ["imovirtual"]
+    for pages in pages_to_scrape:
+        try:
+            main(pages)
+        except Exception as e:
+            print(f"Error during processing '{pages}': {e}")
