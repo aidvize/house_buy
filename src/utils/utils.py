@@ -1,9 +1,8 @@
 import functools
 import json
 import os
-import re
 import time
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 import boto3
@@ -77,17 +76,32 @@ def performance_metrics(func):
     return wrapper_performance_metrics
 
 
-def load_config(config_path="conf/parameters.yaml"):
+def load_config(filename="parameters.yaml"):
     """
-    Load the YAML configuration file.
+    Dynamically load the YAML configuration file located in the 'conf' directory,
+    relative to this script's location.
 
     Parameters:
-    - config_path (str): Path to the YAML configuration file.
+    - filename (str, optional): Name of the YAML configuration file. Defaults to "parameters.yaml".
 
     Returns:
-    - dict: The configuration parameters.
+    - dict: The configuration parameters loaded from the YAML file.
     """
-    with open(config_path, "r") as file:
+    # Get project root
+    project_root = Path(__file__).resolve().parents[2]
+
+    # Find all instances of the configuration file within the project directory
+    config_files = list(project_root.glob(f"**/{filename}"))
+
+    if not config_files:
+        print(f"No configuration file named '{filename}' found in the project.")
+        return None
+
+    # If multiple configuration files are found, you might want to select one based on some criteria
+    # Here, we simply take the first one found
+    config_path = config_files[0]
+
+    with open(config_path, "r", encoding="utf-8") as file:
         return yaml.safe_load(file)
 
 
@@ -168,49 +182,16 @@ def imovirtual(url: str, max_pages: int) -> dict:
     return data
 
 
-def casa_sapo(url: str, max_pages: int) -> dict:
+def remove_duplicates(data: dict):
     """
-    Scrapes listing titles and links from Casa Sapo website for a specified number of pages.
+    Remove duplicate records in the dict
 
     Parameters:
-    - url (str): The base URL to scrape, formatted to include pagination.
-    - max_pages (int): The maximum number of pages to scrape.
-
-    Returns:
-    - dict: A dictionary with listing titles as keys and corresponding links
+    - data (dict): The data to save, with titles as keys and links as values.
     """
-    title = []
-    links = []
-
-    for num in range(1, max_pages + 1):
-        try:
-            page = requests.get(f"{url}{num}", headers=get_headers())
-            soup = BeautifulSoup(page.text, "html.parser")
-
-            span_tags = soup.find_all("div", class_="property-type")
-
-            # Dynamic stop condition: No listings found on page
-            if not span_tags:
-                break
-
-            for span_tag in span_tags:
-                title.append(span_tag.text.strip())
-                a_tag = span_tag.find_parent("a")
-                if a_tag and a_tag.has_attr("href"):
-                    href = a_tag["href"]
-                    # Use regular expression to find URLs starting with "https://casa.sapo.pt"
-                    match = re.search(r'(https://casa\.sapo\.pt[^"]*)', href)
-                    if match:
-                        links.append(match.group(0))  # Append the full matching URL
-
-            time.sleep(1)  # Respectful delay between requests
-
-        except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
-            break
-        print(num)
-    data = {title: link for title, link in zip(title, links)}
-    return data
+    temp = {val: key for key, val in data.items()}
+    res = {val: key for key, val in temp.items()}
+    return res
 
 
 def save_to_json(data: dict, page: str):
@@ -222,11 +203,8 @@ def save_to_json(data: dict, page: str):
     - data (dict): The data to save, with titles as keys and links as values.
     - file_path (str or Path): The path to the JSON file where the data will be saved.
     """
-    # get today
-    today = date.today()
-
     # Ensure file_path is a Path object
-    file_path = Path(f"data/raw/{page}_{today}.json")
+    file_path = Path(f"data/raw/{page}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json")
     # Create the target directory if it doesn't exist
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -238,19 +216,31 @@ def save_to_json(data: dict, page: str):
         print(f"Error saving data to JSON: {e}")
 
 
-def upload_file_s3(bucket: str, access_key: str, secret_key: str):
+def upload_file_s3(bucket_name, access_key, secret_key):
     """
-    Uploads file to S3 bucket using S3 client object
+    Uploads all JSON files in the src/data/raw directory to an AWS S3 bucket.
 
     Parameters:
-        - bucket (str): Bucket name
-        - access_key (str): AWS Access Key
-        - access_key (str): AWS Secret Key
+    - bucket_name (str): The name of the AWS S3 bucket.
+    - access_key (str): The AWS access key.
+    - secret_key (str): The AWS secret access key.
     """
     s3 = boto3.client("s3", aws_access_key_id=access_key, aws_secret_access_key=secret_key)
-    bucket_name = bucket
 
-    for file in os.listdir():
-        if file.endswith(".json"):
-            file_name = os.path.join(file)
-            s3.upload_file(file_name, bucket_name, f"raw/{file_name}")
+    # Get project root and construct path to the raw data directory
+    project_root = Path(__file__).resolve().parents[2]
+    raw_data_dir = project_root / "src" / "data" / "raw"
+
+    # Check if the directory exists and list all JSON files
+    if raw_data_dir.exists():
+        json_files = list(raw_data_dir.glob("*.json"))
+
+        # Upload each file to S3
+        for json_file in json_files:
+            file_key = f"raw/{json_file.name}"
+            try:
+                s3.upload_file(str(json_file), bucket_name, file_key)
+            except Exception as e:
+                print(f"Failed to upload {json_file.name}: {e}")
+    else:
+        pass
