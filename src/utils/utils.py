@@ -1,8 +1,10 @@
 import functools
 import json
+import logging
 import os
 import time
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import boto3
@@ -12,6 +14,38 @@ import yaml
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from memory_profiler import memory_usage
+
+
+def configure_logging(log_file_path="logs/logfile.log"):
+    """
+    Configures the logging for the application,
+    directing logs to both a rotating file and standard output.
+
+    Parameters:
+    - log_file_path (str): Relative path from the project root to the log file.
+    Defaults to "logs/logfile.log".
+    """
+    # Get the absolute path of the directory where this script is located
+    current_script_path = Path(__file__).resolve()
+    project_root = current_script_path.parent.parent  # Adjust based on actual structure
+
+    # Construct an absolute path to the log file
+    absolute_log_file_path = project_root / log_file_path
+
+    # Ensure the log directory exists
+    absolute_log_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        level=logging.INFO,  # Adjust as needed
+        format="%(asctime)s %(levelname)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[
+            RotatingFileHandler(
+                absolute_log_file_path, maxBytes=10485760, backupCount=5
+            ),  # 10MB file size
+            logging.StreamHandler(),  # Also log to stderr
+        ],
+    )
 
 
 def performance_metrics(func) -> callable:
@@ -94,7 +128,7 @@ def load_config(filename="parameters.yaml"):
     config_files = list(project_root.glob(f"**/{filename}"))
 
     if not config_files:
-        print(f"No configuration file named '{filename}' found in the project.")
+        logging.info(f"No configuration file named '{filename}' found in the project.")
         return None
 
     # If multiple configuration files are found, you might want to select one based on some criteria
@@ -159,7 +193,6 @@ def imovirtual(url: str, typology: str) -> dict:
 
     while True:
         full_url = f"{url}{typology}/?page={num}"
-        print(f"Fetching: {full_url}")
         try:
             response = requests.get(full_url, headers=get_headers())
             soup = BeautifulSoup(response.text, "html.parser")
@@ -172,7 +205,7 @@ def imovirtual(url: str, typology: str) -> dict:
                 if (a_tag := span_tag.find_parent("a")) and a_tag.has_attr("href")
             )
             if not span_tags or current_page_links.issubset(previous_page_links):
-                print(f"No more unique results found at page {num}. Stopping.")
+                logging.info(f"No more unique results found at page {num}. Stopping.")
                 break  # Exit the loop if no listings are found or if the same listings are repeated
 
             for span_tag in span_tags:
@@ -186,12 +219,11 @@ def imovirtual(url: str, typology: str) -> dict:
             previous_page_links = (
                 current_page_links  # Update links from the current page for the next iteration
             )
-            print(f"Processed page {num} in {typology}")
             num += 1
             time.sleep(1)  # Respectful delay between requests
 
         except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
+            logging.error(f"Request failed: {e}")
             break
 
     data = {title: link for title, link in zip(titles, links)}
@@ -230,7 +262,7 @@ def save_to_json(data: dict, page: str, typology: str) -> None:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
     except Exception as e:
-        print(f"Error saving data to JSON: {e}")
+        logging.error(f"Error saving data to JSON: {e}")
 
 
 def upload_file_s3(bucket_name, access_key, secret_key) -> None:
@@ -258,6 +290,6 @@ def upload_file_s3(bucket_name, access_key, secret_key) -> None:
             try:
                 s3.upload_file(str(json_file), bucket_name, file_key)
             except Exception as e:
-                print(f"Failed to upload {json_file.name}: {e}")
+                logging.error(f"Failed to upload {json_file.name}: {e}")
     else:
         pass
