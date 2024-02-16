@@ -13,4 +13,3 @@ jobs:
         with:
           title-regex: '^([fix]|[feat]|[chore]|[docs]|[style]|[refactor]|[perf]|[test]): .{1,50}$'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          ignoreLabels: 'skip-lint'
