@@ -1,0 +1,16 @@
+url:
+  imovirtual: "https://www.imovirtual.com/comprar/"
+
+typology:
+  imovirtual: [
+    "apartamento",
+    "moradia",
+    "terreno",
+    "loja",
+    "armazem",
+    "garagem",
+    "escritorio",
+    "predio",
+    "quintaeherdade",
+    "trespasse"
+  ]

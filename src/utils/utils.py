@@ -1,21 +1,57 @@
 import functools
 import json
+import logging
+import os
 import time
-from datetime import date, datetime
+from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+import boto3
 import psutil
 import requests
 import yaml
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 from memory_profiler import memory_usage
 
 
-def performance_metrics(func):
+def configure_logging(log_file_path="logs/logfile.log"):
+    """
+    Configures the logging for the application,
+    directing logs to both a rotating file and standard output.
+
+    Parameters:
+    - log_file_path (str): Relative path from the project root to the log file.
+    Defaults to "logs/logfile.log".
+    """
+    # Get the absolute path of the directory where this script is located
+    current_script_path = Path(__file__).resolve()
+    project_root = current_script_path.parent.parent  # Adjust based on actual structure
+
+    # Construct an absolute path to the log file
+    absolute_log_file_path = project_root / log_file_path
+
+    # Ensure the log directory exists
+    absolute_log_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        level=logging.INFO,  # Adjust as needed
+        format="%(asctime)s %(levelname)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[
+            RotatingFileHandler(
+                absolute_log_file_path, maxBytes=10485760, backupCount=5
+            ),  # 10MB file size
+            logging.StreamHandler(),  # Also log to stderr
+        ],
+    )
+
+
+def performance_metrics(func) -> callable:
     """
     A decorator that measures and prints the performance metrics of the decorated function,
     and saves these metrics to a JSON file in the 'metrics' folder.
-    Metrics include elapsed time, CPU usage, and memory usage during the function's execution.
 
     Parameters:
     - func (Callable): The function to measure. It can accept any number of positional
@@ -59,7 +95,7 @@ def performance_metrics(func):
 
         # Define the filename for the metrics JSON file
         metrics_file_path = Path(
-            f"metrics/{func.__name__}_metrics_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
+            f"data/metrics/{func.__name__}_metrics_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
         )
 
         # Create the 'metrics' directory if it doesn't exist
@@ -74,23 +110,59 @@ def performance_metrics(func):
     return wrapper_performance_metrics
 
 
-def load_config(
-    config_path=".github/workflows/config_template.yaml",
-):
+def load_config(filename="parameters.yaml"):
     """
-    Load the YAML configuration file.
+    Dynamically load the YAML configuration file located in the 'conf' directory,
+    relative to this script's location.
 
     Parameters:
-    - config_path (str): Path to the YAML configuration file.
+    - filename (str, optional): Name of the YAML configuration file. Defaults to "parameters.yaml".
 
     Returns:
-    - dict: The configuration parameters.
+    - dict: The configuration parameters loaded from the YAML file.
     """
-    with open(config_path, "r") as file:
+    # Get project root
+    project_root = Path(__file__).resolve().parents[2]
+
+    # Find all instances of the configuration file within the project directory
+    config_files = list(project_root.glob(f"**/{filename}"))
+
+    if not config_files:
+        logging.info(f"No configuration file named '{filename}' found in the project.")
+        return None
+
+    # If multiple configuration files are found, you might want to select one based on some criteria
+    # Here, we simply take the first one found
+    config_path = config_files[0]
+
+    with open(config_path, "r", encoding="utf-8") as file:
         return yaml.safe_load(file)
 
 
-def get_headers():
+def load_env(env_path=".env") -> tuple:
+    """
+    Load the .ENV configuration file.
+
+    Parameters:
+    - env_path (str): Path to the .env configuration file.
+
+    Returns:
+    - bucket (str): Bucket name
+    - access_key (str): AWS Access Key
+    - access_key (str): AWS Secret Key
+    """
+    # Load environment variables from .env file
+    load_dotenv()
+
+    # Retrieve the environment variables
+    bucket_name = os.getenv("BUCKET")
+    aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+    return bucket_name, aws_access_key, aws_secret_key
+
+
+def get_headers() -> dict:
     """
     Creates and returns headers to mimic a web browser for HTTP requests.
 
@@ -103,116 +175,85 @@ def get_headers():
     }
 
 
-def make_request(url, headers):
+def imovirtual(url: str, typology: str) -> dict:
     """
-    Performs an HTTP GET request to the specified URL using the provided headers.
+    Scrapes listing titles and links from Imovirtual website until no more listings are found.
 
     Parameters:
-        - url (str): The URL to which the GET request is made.
-        - headers (dict): The headers to include in the request.
+    - url (str): The base URL to scrape.
+    - typology (str): The typology to scrape.
 
     Returns:
-        requests.Response: The response object from the request if successful, otherwise None.
-    """
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()  # Raises an exception for 4XX or 5XX errors
-        return response
-    except requests.exceptions.RequestException as e:
-        print(f"Request failed: {e}")
-        return None
-
-
-def parse_html(html_content):
-    """
-    Parses the given HTML content string using BeautifulSoup.
-
-    Parameters:
-        - html_content (str): The HTML content to parse.
-
-    Returns:
-        BeautifulSoup: The BeautifulSoup object parsed from the HTML content.
-    """
-    return BeautifulSoup(html_content, "html.parser")
-
-
-def extract_listing_data(soup):
-    """
-    Extracts and returns the listing data such as titles and links from the parsed HTML.
-
-    Parameters:
-        - soup (BeautifulSoup): The BeautifulSoup object containing the parsed HTML data.
-
-    Returns:
-        tuple: A tuple containing two lists (titles, links), or (None, None) if no data.
+    - dict: A dictionary with listing titles as keys and corresponding links.
     """
     titles = []
     links = []
+    num = 1
+    previous_page_links = set()  # To store links found on the previous page
 
-    span_tags = soup.find_all("span", class_="offer-item-title")
-    if not span_tags:
-        return None, None  # Indicates no more data to scrape
+    while True:
+        full_url = f"{url}{typology}/?page={num}"
+        try:
+            response = requests.get(full_url, headers=get_headers())
+            soup = BeautifulSoup(response.text, "html.parser")
+            span_tags = soup.find_all("span", class_="offer-item-title")
 
-    for span_tag in span_tags:
-        titles.append(span_tag.text.strip())
-        a_tag = span_tag.find_parent("a")
-        if a_tag and a_tag.has_attr("href"):
-            links.append(a_tag["href"])
+            # Check if we're seeing the same links as the previous page
+            current_page_links = set(
+                a_tag["href"]
+                for span_tag in span_tags
+                if (a_tag := span_tag.find_parent("a")) and a_tag.has_attr("href")
+            )
+            if not span_tags or current_page_links.issubset(previous_page_links):
+                logging.info(f"No more unique results found at page {num}. Stopping.")
+                break  # Exit the loop if no listings are found or if the same listings are repeated
 
-    return titles, links
+            for span_tag in span_tags:
+                title = span_tag.text.strip()
+                a_tag = span_tag.find_parent("a")
+                if a_tag and a_tag.has_attr("href"):
+                    link = a_tag["href"]
+                    titles.append(title)
+                    links.append(link)
 
-
-def scrape_imovirtual_listings(base_url, start_page=1, max_pages=10):
-    """
-    Scrapes property listings from a given URL, iterating through a defined number of pages.
-
-    Parameters:
-        - base_url (str): The base URL to start scraping from.
-        - start_page (int): The starting page number for scraping.
-        - max_pages (int): The maximum number of pages to scrape.
-
-    Returns:
-        tuple: Two lists containing the titles and links of the listings extracted.
-    """
-    headers = get_headers()
-    titles = []
-    links = []
-
-    for num in range(start_page, start_page + max_pages):
-        url = f"{base_url}?page={num}"
-        response = make_request(url, headers)
-
-        if response:
-            soup = parse_html(response.text)
-            page_titles, page_links = extract_listing_data(soup)
-
-            if page_titles is None:  # No more listings found
-                print(f"No more results found at page {num}. Stopping.")
-                break
-
-            titles.extend(page_titles)
-            links.extend(page_links)
-
+            previous_page_links = (
+                current_page_links  # Update links from the current page for the next iteration
+            )
+            num += 1
             time.sleep(1)  # Respectful delay between requests
 
-    return titles, links
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed: {e}")
+            break
+
+    data = {title: link for title, link in zip(titles, links)}
+    return data
 
 
-def save_to_json(data):
+def remove_duplicates(data: dict) -> dict:
+    """
+    Remove duplicate records in the dict
+
+    Parameters:
+    - data (dict): The data to save, with titles as keys and links as values.
+    """
+    temp = {val: key for key, val in data.items()}
+    res = {val: key for key, val in temp.items()}
+    return res
+
+
+def save_to_json(data: dict, page: str, typology: str) -> None:
     """
     Saves the given data to a JSON file. If the target directory doesn't exist,
     it will be created.
 
     Parameters:
     - data (dict): The data to save, with titles as keys and links as values.
-    - file_path (str or Path): The path to the JSON file where the data will be saved.
+    - page (str): The path to the JSON file where the data will be saved.
+    - typology (str): The typology to scrape, formatted to include pagination.
     """
-    # get today
-    today = date.today()
-
     # Ensure file_path is a Path object
-    file_path = Path(f"raw/scraped_data_{today}.json")
-
+    file_path = Path(f"data/raw/{page}_{typology}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json")
     # Create the target directory if it doesn't exist
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -220,6 +261,35 @@ def save_to_json(data):
     try:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
-        print(f"Data successfully saved to {file_path}")
     except Exception as e:
-        print(f"Error saving data to JSON: {e}")
+        logging.error(f"Error saving data to JSON: {e}")
+
+
+def upload_file_s3(bucket_name, access_key, secret_key) -> None:
+    """
+    Uploads all JSON files in the src/data/raw directory to an AWS S3 bucket.
+
+    Parameters:
+    - bucket_name (str): The name of the AWS S3 bucket.
+    - access_key (str): The AWS access key.
+    - secret_key (str): The AWS secret access key.
+    """
+    s3 = boto3.client("s3", aws_access_key_id=access_key, aws_secret_access_key=secret_key)
+
+    # Get project root and construct path to the raw data directory
+    project_root = Path(__file__).resolve().parents[2]
+    raw_data_dir = project_root / "src" / "data" / "raw"
+
+    # Check if the directory exists and list all JSON files
+    if raw_data_dir.exists():
+        json_files = list(raw_data_dir.glob("*.json"))
+
+        # Upload each file to S3
+        for json_file in json_files:
+            file_key = f"raw/{json_file.name}"
+            try:
+                s3.upload_file(str(json_file), bucket_name, file_key)
+            except Exception as e:
+                logging.error(f"Failed to upload {json_file.name}: {e}")
+    else:
+        pass
