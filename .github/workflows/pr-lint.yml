@@ -13,4 +13,3 @@ jobs:
         with:
           regex: '^(fix|feat|chore|docs|style|refactor|perf|test): .{1,50}$'
           token: ${{ secrets.GITHUB_TOKEN }}
-          ignoreLabels: 'skip-lint'
