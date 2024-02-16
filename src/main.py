@@ -1,5 +1,6 @@
 from src.utils import utils
 from src.utils.utils import (
+    configure_logging,
     load_config,
     load_env,
     performance_metrics,
@@ -22,6 +23,7 @@ def main(page: str):
     - None
     """
     # Load global configuration and AWS credentials from environment variables
+    configure_logging()
     config = load_config()
     bucket_name, aws_access_key, aws_secret_key = load_env()
 
