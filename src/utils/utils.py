@@ -139,7 +139,7 @@ def load_config(filename="parameters.yaml"):
         return yaml.safe_load(file)
 
 
-def load_env(env_path=".env") -> tuple:
+def load_env() -> tuple:
     """
     Load the .ENV configuration file.
 
@@ -175,6 +175,58 @@ def get_headers() -> dict:
     }
 
 
+def find_element_after_sequence(values: list, seq: list):
+    """
+    Find the max page number per typology
+
+    Parameters:
+    - values (list): List of values extracted from li tag.
+    - seq (list): sequence to search for.
+
+    Returns:
+        int: number of pages.
+    """
+    # Find the start of the sequence
+    for i in range(len(values) - len(seq)):
+        # If the sequence matches
+        if values[i : i + len(seq)] == seq:
+            # Check if there is an element after the sequence
+            if i + len(seq) < len(values):
+                return int(values[i + len(seq)])
+    return None  # Return None if the sequence is not found or there is no element after
+
+
+def get_page_number(url: str, typology: str) -> int:
+    """
+    Get the max page number per typology.
+
+    Parameters:
+    - url (str): The base URL to scrape.
+    - typology (str): The typology to scrape.
+
+    Returns:
+    - int: The number of the page for each typology.
+    """
+    values = []
+    full_url = f"{url}{typology}/?page=1"
+
+    response = requests.get(full_url, headers=get_headers())
+    soup = BeautifulSoup(response.text, "html.parser")
+    li_tags = soup.find_all("li", class_="")
+
+    if not li_tags:
+        logging.info(f"No results found at {full_url}. Stopping.")
+
+    for span_tag in li_tags:
+        values.append(span_tag.text.strip())
+
+    # Define the sequence to search for
+    sequence = ["1", "2", "3"]
+
+    max_pages = find_element_after_sequence(values, sequence)
+    return max_pages
+
+
 def imovirtual(url: str, typology: str) -> dict:
     """
     Scrapes listing titles and links from Imovirtual website until no more listings are found.
@@ -186,47 +238,33 @@ def imovirtual(url: str, typology: str) -> dict:
     Returns:
     - dict: A dictionary with listing titles as keys and corresponding links.
     """
-    titles = []
+    title = []
     links = []
-    num = 1
-    previous_page_links = set()  # To store links found on the previous page
+    max_pages = get_page_number(url, typology)
 
-    while True:
-        full_url = f"{url}{typology}/?page={num}"
+    for num in range(1, max_pages + 1):
         try:
-            response = requests.get(full_url, headers=get_headers())
-            soup = BeautifulSoup(response.text, "html.parser")
+            page = requests.get(f"{url}{typology}/?page={num}", headers=get_headers())
+            soup = BeautifulSoup(page.text, "html.parser")
             span_tags = soup.find_all("span", class_="offer-item-title")
 
-            # Check if we're seeing the same links as the previous page
-            current_page_links = set(
-                a_tag["href"]
-                for span_tag in span_tags
-                if (a_tag := span_tag.find_parent("a")) and a_tag.has_attr("href")
-            )
-            if not span_tags or current_page_links.issubset(previous_page_links):
-                logging.info(f"No more unique results found at page {num}. Stopping.")
+            if not span_tags:
+                logging.info(f"No results found at page {num}. Stopping.")
                 break  # Exit the loop if no listings are found or if the same listings are repeated
 
             for span_tag in span_tags:
-                title = span_tag.text.strip()
+                title.append(span_tag.text.strip())
                 a_tag = span_tag.find_parent("a")
                 if a_tag and a_tag.has_attr("href"):
-                    link = a_tag["href"]
-                    titles.append(title)
-                    links.append(link)
+                    links.append(a_tag["href"])
 
-            previous_page_links = (
-                current_page_links  # Update links from the current page for the next iteration
-            )
-            num += 1
             time.sleep(1)  # Respectful delay between requests
 
         except requests.exceptions.RequestException as e:
             logging.error(f"Request failed: {e}")
-            break
+            pass
 
-    data = {title: link for title, link in zip(titles, links)}
+    data = {title: link for title, link in zip(title, links)}
     return data
 
 
