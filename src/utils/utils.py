@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from memory_profiler import memory_usage
 
 
-def performance_metrics(func):
+def performance_metrics(func) -> callable:
     """
     A decorator that measures and prints the performance metrics of the decorated function,
     and saves these metrics to a JSON file in the 'metrics' folder.
@@ -105,7 +105,7 @@ def load_config(filename="parameters.yaml"):
         return yaml.safe_load(file)
 
 
-def load_env(env_path=".env"):
+def load_env(env_path=".env") -> tuple:
     """
     Load the .ENV configuration file.
 
@@ -128,7 +128,7 @@ def load_env(env_path=".env"):
     return bucket_name, aws_access_key, aws_secret_key
 
 
-def get_headers():
+def get_headers() -> dict:
     """
     Creates and returns headers to mimic a web browser for HTTP requests.
 
@@ -141,48 +141,64 @@ def get_headers():
     }
 
 
-def imovirtual(url: str, max_pages: int) -> dict:
+def imovirtual(url: str, typology: str) -> dict:
     """
-    Scrapes listing titles and links from Imovirtual website for a specified number of pages.
+    Scrapes listing titles and links from Imovirtual website until no more listings are found.
 
     Parameters:
-    - url (str): The base URL to scrape, formatted to include pagination.
-    - max_pages (int): The maximum number of pages to scrape.
+    - url (str): The base URL to scrape.
+    - typology (str): The typology to scrape.
 
     Returns:
-    - dict: A dictionary with listing titles as keys and corresponding links
+    - dict: A dictionary with listing titles as keys and corresponding links.
     """
-    title = []
+    titles = []
     links = []
+    num = 1
+    previous_page_links = set()  # To store links found on the previous page
 
-    for num in range(1, max_pages + 1):
+    while True:
+        full_url = f"{url}{typology}/?page={num}"
+        print(f"Fetching: {full_url}")
         try:
-            page = requests.get(f"{url}{num}", headers=get_headers())
-            soup = BeautifulSoup(page.text, "html.parser")
-
+            response = requests.get(full_url, headers=get_headers())
+            soup = BeautifulSoup(response.text, "html.parser")
             span_tags = soup.find_all("span", class_="offer-item-title")
 
-            # Dynamic stop condition: No listings found on page
-            if not span_tags:
-                break
+            # Check if we're seeing the same links as the previous page
+            current_page_links = set(
+                a_tag["href"]
+                for span_tag in span_tags
+                if (a_tag := span_tag.find_parent("a")) and a_tag.has_attr("href")
+            )
+            if not span_tags or current_page_links.issubset(previous_page_links):
+                print(f"No more unique results found at page {num}. Stopping.")
+                break  # Exit the loop if no listings are found or if the same listings are repeated
 
             for span_tag in span_tags:
-                title.append(span_tag.text.strip())
+                title = span_tag.text.strip()
                 a_tag = span_tag.find_parent("a")
                 if a_tag and a_tag.has_attr("href"):
-                    links.append(a_tag["href"])
+                    link = a_tag["href"]
+                    titles.append(title)
+                    links.append(link)
 
+            previous_page_links = (
+                current_page_links  # Update links from the current page for the next iteration
+            )
+            print(f"Processed page {num} in {typology}")
+            num += 1
             time.sleep(1)  # Respectful delay between requests
 
         except requests.exceptions.RequestException as e:
             print(f"Request failed: {e}")
             break
-        print(num)
-    data = {title: link for title, link in zip(title, links)}
+
+    data = {title: link for title, link in zip(titles, links)}
     return data
 
 
-def remove_duplicates(data: dict):
+def remove_duplicates(data: dict) -> dict:
     """
     Remove duplicate records in the dict
 
@@ -194,17 +210,18 @@ def remove_duplicates(data: dict):
     return res
 
 
-def save_to_json(data: dict, page: str):
+def save_to_json(data: dict, page: str, typology: str) -> None:
     """
     Saves the given data to a JSON file. If the target directory doesn't exist,
     it will be created.
 
     Parameters:
     - data (dict): The data to save, with titles as keys and links as values.
-    - file_path (str or Path): The path to the JSON file where the data will be saved.
+    - page (str): The path to the JSON file where the data will be saved.
+    - typology (str): The typology to scrape, formatted to include pagination.
     """
     # Ensure file_path is a Path object
-    file_path = Path(f"data/raw/{page}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json")
+    file_path = Path(f"data/raw/{page}_{typology}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json")
     # Create the target directory if it doesn't exist
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -216,7 +233,7 @@ def save_to_json(data: dict, page: str):
         print(f"Error saving data to JSON: {e}")
 
 
-def upload_file_s3(bucket_name, access_key, secret_key):
+def upload_file_s3(bucket_name, access_key, secret_key) -> None:
     """
     Uploads all JSON files in the src/data/raw directory to an AWS S3 bucket.
 
