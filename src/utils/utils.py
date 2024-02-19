@@ -8,6 +8,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import boto3
+import pandas as pd
 import psutil
 import requests
 import yaml
@@ -196,7 +197,7 @@ def find_element_after_sequence(values: list, seq: list):
     return None  # Return None if the sequence is not found or there is no element after
 
 
-def get_page_number(url: str, typology: str) -> int:
+def get_page_number(url: str, typology: int) -> int:
     """
     Get the max page number per typology.
 
@@ -227,7 +228,7 @@ def get_page_number(url: str, typology: str) -> int:
     return max_pages
 
 
-def imovirtual(url: str, typology: str) -> dict:
+def imovirtual(url: str, typology: int) -> dict:
     """
     Scrapes listing titles and links from Imovirtual website until no more listings are found.
 
@@ -259,6 +260,10 @@ def imovirtual(url: str, typology: str) -> dict:
                     links.append(a_tag["href"])
 
             time.sleep(1)  # Respectful delay between requests
+            print(
+                f"Page {num} of {max_pages} processed for {typology}",
+                f"{round((num / max_pages), 4) * 100}% remains",
+            )
 
         except requests.exceptions.RequestException as e:
             logging.error(f"Request failed: {e}")
@@ -266,6 +271,75 @@ def imovirtual(url: str, typology: str) -> dict:
 
     data = {title: link for title, link in zip(title, links)}
     return data
+
+
+def get_json():
+    # Get project root and construct path to the raw data directory
+    project_root = Path(__file__).resolve().parents[2]
+    raw_data_dir = project_root / "src" / "data" / "raw"
+
+    # Check if the directory exists and list all JSON files
+    if raw_data_dir.exists():
+        return list(raw_data_dir.glob("*.json"))
+    else:
+        return None
+
+
+def read_json(json_file: str) -> list:
+    """
+    Read json data and convert into list
+
+    Parameters:
+    - json_file (str): Json filename.
+
+    Returns:
+    - data (list): json converted
+    """
+    # Opening JSON file
+    f = open(f"{json_file}")
+
+    # returns JSON object as a dictionary
+    data = json.load(f)
+
+    # convert into list
+    data = list(data.items())
+
+    return data
+
+
+def get_details(url: str, tag: str, class_name: str):
+    """
+    Scrapes listing and get all details of each property.
+
+    Parameters:
+    - url (str): The base URL to scrape.
+    - tag (str): The typology to scrape.
+    - tag (str): The typology to scrape.
+
+    Returns:
+    - dict: A dictionary with listing titles as keys and corresponding links.
+    """
+    page = requests.get(url, headers=get_headers())
+    soup = BeautifulSoup(page.content, "html.parser")
+    return [element.text.strip() for element in soup.find_all(tag, class_=class_name)]
+
+
+def create_dataframe(json_file: str, full_address: list, prices: list, prices_m2: list):
+    """
+    Create a base DataFrame for the whole process
+
+    Parameters:
+    - full_address (list): List that contain full address.
+    - prices (list): List that contain prices.
+    - prices_m2 (list): List that contain prices per m2.
+
+    Returns:
+    - df (dataframe): The base dataframe
+    """
+    # Create a base DataFrame
+    df = pd.DataFrame(read_json(json_file), columns=["title", "url"])
+    df["full_address"], df["prices"], df["prices_m2"] = full_address, prices, prices_m2
+    return df
 
 
 def remove_duplicates(data: dict) -> dict:
@@ -280,7 +354,7 @@ def remove_duplicates(data: dict) -> dict:
     return res
 
 
-def save_to_json(data: dict, page: str, typology: str) -> None:
+def save_to_json(data: dict, page: str, typology: str, dest: str = "data/raw/") -> None:
     """
     Saves the given data to a JSON file. If the target directory doesn't exist,
     it will be created.
@@ -289,9 +363,10 @@ def save_to_json(data: dict, page: str, typology: str) -> None:
     - data (dict): The data to save, with titles as keys and links as values.
     - page (str): The path to the JSON file where the data will be saved.
     - typology (str): The typology to scrape, formatted to include pagination.
+    - dest (str): The destination folder where data will be added.
     """
     # Ensure file_path is a Path object
-    file_path = Path(f"data/raw/{page}_{typology}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json")
+    file_path = Path(f"{dest}{page}_{typology}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json")
     # Create the target directory if it doesn't exist
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -303,7 +378,7 @@ def save_to_json(data: dict, page: str, typology: str) -> None:
         logging.error(f"Error saving data to JSON: {e}")
 
 
-def upload_file_s3(bucket_name, access_key, secret_key) -> None:
+def upload_file_s3(bucket_name: str, access_key: str, secret_key: str, dest: str = "raw/") -> None:
     """
     Uploads all JSON files in the src/data/raw directory to an AWS S3 bucket.
 
@@ -311,23 +386,16 @@ def upload_file_s3(bucket_name, access_key, secret_key) -> None:
     - bucket_name (str): The name of the AWS S3 bucket.
     - access_key (str): The AWS access key.
     - secret_key (str): The AWS secret access key.
+    - dest (str): The destination folder where data will be added.
     """
     s3 = boto3.client("s3", aws_access_key_id=access_key, aws_secret_access_key=secret_key)
 
-    # Get project root and construct path to the raw data directory
-    project_root = Path(__file__).resolve().parents[2]
-    raw_data_dir = project_root / "src" / "data" / "raw"
+    json_files = get_json()
 
-    # Check if the directory exists and list all JSON files
-    if raw_data_dir.exists():
-        json_files = list(raw_data_dir.glob("*.json"))
-
-        # Upload each file to S3
-        for json_file in json_files:
-            file_key = f"raw/{json_file.name}"
-            try:
-                s3.upload_file(str(json_file), bucket_name, file_key)
-            except Exception as e:
-                logging.error(f"Failed to upload {json_file.name}: {e}")
-    else:
-        pass
+    # Upload each file to S3
+    for json_file in json_files:
+        file_key = f"{dest}{json_file.name}"
+        try:
+            s3.upload_file(str(json_file), bucket_name, file_key)
+        except Exception as e:
+            logging.error(f"Failed to upload {json_file.name}: {e}")
