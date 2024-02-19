@@ -1,11 +1,14 @@
 from src.utils import utils
 from src.utils.utils import (
+    base_dataframe,
     configure_logging,
+    intermediate_dataframe,
     load_config,
     load_env,
     performance_metrics,
     remove_duplicates,
     save_to_json,
+    save_to_parquet,
     upload_file_s3,
 )
 
@@ -42,12 +45,16 @@ def main(page: str):
         print(f"Function {func_name} not found in utils module.")
         return
 
-    # Scrape data, remove duplicates, save to JSON, and upload to S3
+    # Scrape data, remove duplicates, save to JSON/PARQUET, and upload to S3
     for typ in typology:
         data = func(base_url, typ)
         res = remove_duplicates(data)
+        df = base_dataframe(list(res.items()))
+        df_enhanced = intermediate_dataframe(df)
         save_to_json(res, f"{page}", typ)
+        save_to_parquet(page, df_enhanced)
         upload_file_s3(bucket_name, aws_access_key, aws_secret_key)
+        upload_file_s3(bucket_name, aws_access_key, aws_secret_key, "paRQueT")
 
 
 if __name__ == "__main__":

@@ -8,15 +8,17 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import boto3
+import pandas as pd
 import psutil
 import requests
 import yaml
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from memory_profiler import memory_usage
+from pandas import DataFrame
 
 
-def configure_logging(log_file_path="logs/logfile.log"):
+def configure_logging(log_file_path="logs/logfile.log") -> None:
     """
     Configures the logging for the application,
     directing logs to both a rotating file and standard output.
@@ -110,7 +112,7 @@ def performance_metrics(func) -> callable:
     return wrapper_performance_metrics
 
 
-def load_config(filename="parameters.yaml"):
+def load_config(filename="parameters.yaml") -> None or list:
     """
     Dynamically load the YAML configuration file located in the 'conf' directory,
     relative to this script's location.
@@ -175,7 +177,7 @@ def get_headers() -> dict:
     }
 
 
-def find_element_after_sequence(values: list, seq: list):
+def find_element_after_sequence(values: list, seq: list) -> int or None:
     """
     Find the max page number per typology
 
@@ -205,7 +207,7 @@ def get_page_number(url: str, typology: str) -> int:
     - typology (str): The typology to scrape.
 
     Returns:
-    - int: The number of the page for each typology.
+    - max_pages (int): The number of the page for each typology.
     """
     values = []
     full_url = f"{url}{typology}/?page=1"
@@ -236,7 +238,7 @@ def imovirtual(url: str, typology: str) -> dict:
     - typology (str): The typology to scrape.
 
     Returns:
-    - dict: A dictionary with listing titles as keys and corresponding links.
+    - data (dict): A dictionary with listing titles as keys and corresponding links.
     """
     title = []
     links = []
@@ -274,10 +276,89 @@ def remove_duplicates(data: dict) -> dict:
 
     Parameters:
     - data (dict): The data to save, with titles as keys and links as values.
+
+    Returns:
+    - res (dict): duplicate removed
     """
     temp = {val: key for key, val in data.items()}
     res = {val: key for key, val in temp.items()}
     return res
+
+
+def json_to_list(json_file: str) -> list:
+    """
+    Convert json into a list
+
+    Parameters:
+    - json_file (str): The path of the JSON file
+
+    Returns:
+    - list
+    """
+    f = open(json_file)
+    data = json.load(f)
+    return list(data.items())
+
+
+def base_dataframe(json_file: list) -> DataFrame:
+    """
+    Create base DataFrame with title and url
+
+    Parameters:
+    - json_file (str): The path of the JSON file
+
+    Returns:
+    - Dataframe
+    """
+    return pd.DataFrame(json_file, columns=["title", "url"])
+
+
+def scrape_data(url: str, tag: str, class_name: str) -> list:
+    """
+    Scrapes data from a given URL using the specified tag and class name.
+
+    Parameters:
+    - url (str): The base URL to scrape.
+    - tag (str): The base tag to scrape.
+    - class_name (str): The base class to scrape.
+
+    Returns:
+    - list
+    """
+    page = requests.get(url, headers=get_headers())
+    soup = BeautifulSoup(page.content, "html.parser")
+    return [element.text.strip() for element in soup.find_all(tag, class_=class_name)]
+
+
+def intermediate_dataframe(df: DataFrame) -> DataFrame:
+    """
+    Enhances a dataframe with scraped data directly added to new columns.
+
+    Parameters:
+    - df (DataFrame): DF with base columns
+
+    Returns:
+    - df (DataFrame): DF with new columns
+    """
+
+    # Define the tag and class name for each column to be added
+    data_mappings = {
+        "full_address": ("div", "css-z9gx1y e3ustps0"),
+        "prices": ("strong", "css-t3wmkv e1l1avn10"),
+        "prices_m2": ("div", "css-1h1l5lm efcnut39"),
+    }
+
+    # Initialize new columns to None
+    for column in data_mappings.keys():
+        df[column] = None
+
+    # Update the DataFrame with scraped data for each URL
+    for index, row in df.iterrows():
+        for key, (tag, class_name) in data_mappings.items():
+            df.at[index, key] = scrape_data(row["url"], tag, class_name)
+    df["prices_m2"].replace(" €/m²", "", inplace=True)
+    df["prices"].replace(" €", "", inplace=True)
+    return df
 
 
 def save_to_json(data: dict, page: str, typology: str) -> None:
@@ -303,7 +384,22 @@ def save_to_json(data: dict, page: str, typology: str) -> None:
         logging.error(f"Error saving data to JSON: {e}")
 
 
-def upload_file_s3(bucket_name, access_key, secret_key) -> None:
+def save_to_parquet(page: str, df: DataFrame, dest: str = "src/data/processed/") -> None:
+    """
+    Saves the given data to a PARQUET file.
+
+    Parameters:
+    - page (str): The path to the JSON file where the data will be saved.
+    - df (DataFrame): The DF that will be saved.
+    - dest (str): Path of the destination
+    """
+    df = pd.DataFrame(df)
+    output_file = Path(dest) / f"df_{page}.parquet.gzip"
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(output_file, compression="gzip")
+
+
+def upload_file_s3(bucket_name: str, access_key: str, secret_key: str, kind: str = "json") -> None:
     """
     Uploads all JSON files in the src/data/raw directory to an AWS S3 bucket.
 
@@ -311,23 +407,26 @@ def upload_file_s3(bucket_name, access_key, secret_key) -> None:
     - bucket_name (str): The name of the AWS S3 bucket.
     - access_key (str): The AWS access key.
     - secret_key (str): The AWS secret access key.
+    - kind (str): Data format to upload
     """
     s3 = boto3.client("s3", aws_access_key_id=access_key, aws_secret_access_key=secret_key)
 
     # Get project root and construct path to the raw data directory
     project_root = Path(__file__).resolve().parents[2]
-    raw_data_dir = project_root / "src" / "data" / "raw"
 
-    # Check if the directory exists and list all JSON files
+    file_ext = "*.json" if kind.lower() == "json" else "*.gzip"
+    dir_name = "raw" if kind.lower() == "json" else "processed"
+
+    raw_data_dir = project_root / "src" / "data" / dir_name
+
     if raw_data_dir.exists():
-        json_files = list(raw_data_dir.glob("*.json"))
+        files = list(raw_data_dir.glob(file_ext))
 
-        # Upload each file to S3
-        for json_file in json_files:
-            file_key = f"raw/{json_file.name}"
+        for file in files:
+            file_key = f"{dir_name}/{file.name}"
             try:
-                s3.upload_file(str(json_file), bucket_name, file_key)
+                s3.upload_file(str(file), bucket_name, file_key)
             except Exception as e:
-                logging.error(f"Failed to upload {json_file.name}: {e}")
+                logging.error(f"Failed to upload {file.name}: {e}")
     else:
         pass

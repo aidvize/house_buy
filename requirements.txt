@@ -11,3 +11,4 @@ python-dotenv~=1.0.1
 pyyaml~=6.0.1
 psutil~=5.9.8
 boto3~=1.29.1
+pydantic~=2.6.1
