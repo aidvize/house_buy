@@ -1,4 +1,6 @@
 import logging
+import sys
+from pathlib import Path
 
 from src.utils import utils
 from src.utils.utils import (
@@ -13,6 +15,9 @@ from src.utils.utils import (
     save_to_parquet,
     upload_file_s3,
 )
+
+# Add the parent directory of `src` to sys.path to resolve the `src` module
+sys.path.append(str(Path(__file__).parent.parent))
 
 
 @performance_metrics
