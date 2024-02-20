@@ -2,8 +2,8 @@ import logging
 import sys
 from pathlib import Path
 
-from src.utils import utils
-from src.utils.utils import (
+from utils import utils
+from utils.utils import (
     base_dataframe,
     configure_logging,
     intermediate_dataframe,
