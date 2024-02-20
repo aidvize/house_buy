@@ -261,6 +261,10 @@ def imovirtual(url: str, typology: str) -> dict:
                     links.append(a_tag["href"])
 
             time.sleep(1)  # Respectful delay between requests
+            print(
+                f"Page {num} of {max_pages} processed",
+                f"{round((num / max_pages), 4) * 100}% remains for {typology}",
+            )
 
         except requests.exceptions.RequestException as e:
             logging.error(f"Request failed: {e}")
