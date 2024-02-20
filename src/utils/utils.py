@@ -252,7 +252,7 @@ def imovirtual(url: str, typology: str) -> dict:
 
             if not span_tags:
                 logging.info(f"No results found at page {num}. Stopping.")
-                break  # Exit the loop if no listings are found or if the same listings are repeated
+                pass  # Exit the loop if no listings are found or if the same listings are repeated
 
             for span_tag in span_tags:
                 title.append(span_tag.text.strip())
