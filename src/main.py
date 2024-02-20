@@ -1,3 +1,5 @@
+import logging
+
 from src.utils import utils
 from src.utils.utils import (
     base_dataframe,
@@ -53,8 +55,8 @@ def main(page: str):
         df_enhanced = intermediate_dataframe(df)
         save_to_json(res, f"{page}", typ)
         save_to_parquet(page, df_enhanced)
-        upload_file_s3(bucket_name, aws_access_key, aws_secret_key)
-        upload_file_s3(bucket_name, aws_access_key, aws_secret_key, "paRQueT")
+    upload_file_s3(bucket_name, aws_access_key, aws_secret_key)
+    upload_file_s3(bucket_name, aws_access_key, aws_secret_key, "paRQueT")
 
 
 if __name__ == "__main__":
@@ -63,4 +65,5 @@ if __name__ == "__main__":
         try:
             main(pages)
         except Exception as e:
-            print(f"Error during processing '{pages}': {e}")
+            logging.info(f"Error during processing '{pages}': {e}")
+            continue
