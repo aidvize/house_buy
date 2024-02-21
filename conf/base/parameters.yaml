@@ -3,14 +3,17 @@ url:
 
 typology:
   imovirtual: [
-    "apartamento",
-    "moradia",
-    "terreno",
-    "loja",
+    "apartamento", #3610
     "armazem",
-    "garagem",
     "escritorio",
+    "garagem",
+    "loja", #475
+    "moradia", #2558
     "predio",
-    "quintaeherdade",
+    "quintaeherdade", # 281
+    "terreno", #2372
     "trespasse"
   ]
+
+search:
+  imovirtual: "/?search[order]=created_at_first%3Adesc&page="

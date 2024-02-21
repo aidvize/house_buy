@@ -210,7 +210,7 @@ def get_page_number(url: str, typology: str) -> int:
     - max_pages (int): The number of the page for each typology.
     """
     values = []
-    full_url = f"{url}{typology}/?page=1"
+    full_url = f"{url}{typology}/?search[order]=created_at_first%3Adesc&page=1"
 
     response = requests.get(full_url, headers=get_headers())
     soup = BeautifulSoup(response.text, "html.parser")
@@ -229,7 +229,7 @@ def get_page_number(url: str, typology: str) -> int:
     return max_pages
 
 
-def imovirtual(url: str, typology: str) -> dict:
+def imovirtual(url: str, typology: str, search: str) -> dict:
     """
     Scrapes listing titles and links from Imovirtual website until no more listings are found.
 
@@ -246,7 +246,7 @@ def imovirtual(url: str, typology: str) -> dict:
 
     for num in range(1, max_pages + 1):
         try:
-            page = requests.get(f"{url}{typology}/?page={num}", headers=get_headers())
+            page = requests.get(f"{url}{typology}{search}{num}", headers=get_headers())
             soup = BeautifulSoup(page.text, "html.parser")
             span_tags = soup.find_all("span", class_="offer-item-title")
 
@@ -286,6 +286,7 @@ def remove_duplicates(data: dict) -> dict:
     """
     temp = {val: key for key, val in data.items()}
     res = {val: key for key, val in temp.items()}
+    print("remove_duplicates")
     return res
 
 
@@ -301,6 +302,7 @@ def json_to_list(json_file: str) -> list:
     """
     f = open(json_file)
     data = json.load(f)
+    print("json_to_list")
     return list(data.items())
 
 
@@ -314,6 +316,7 @@ def base_dataframe(json_file: list) -> DataFrame:
     Returns:
     - Dataframe
     """
+    print("base_dataframe")
     return pd.DataFrame(json_file, columns=["title", "url"])
 
 
@@ -331,6 +334,7 @@ def scrape_data(url: str, tag: str, class_name: str) -> list:
     """
     page = requests.get(url, headers=get_headers())
     soup = BeautifulSoup(page.content, "html.parser")
+    print("scrape_data")
     return [element.text.strip() for element in soup.find_all(tag, class_=class_name)]
 
 
@@ -360,6 +364,7 @@ def intermediate_dataframe(df: DataFrame) -> DataFrame:
     for index, row in df.iterrows():
         for key, (tag, class_name) in data_mappings.items():
             df.at[index, key] = scrape_data(row["url"], tag, class_name)
+            print("intermediate_dataframe", df.isnull().any(axis=1).sum())
     df["prices_m2"].replace(" €/m²", "", inplace=True)
     df["prices"].replace(" €", "", inplace=True)
     return df
@@ -384,11 +389,12 @@ def save_to_json(data: dict, page: str, typology: str) -> None:
     try:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
+            print("save_to_json")
     except Exception as e:
         logging.error(f"Error saving data to JSON: {e}")
 
 
-def save_to_parquet(page: str, df: DataFrame, dest: str = "src/data/processed/") -> None:
+def save_to_parquet(page: str, df: DataFrame, typology: str) -> None:
     """
     Saves the given data to a PARQUET file.
 
@@ -398,9 +404,12 @@ def save_to_parquet(page: str, df: DataFrame, dest: str = "src/data/processed/")
     - dest (str): Path of the destination
     """
     df = pd.DataFrame(df)
-    output_file = Path(dest) / f"df_{page}.parquet.gzip"
+    output_file = Path(
+        f"data/processed/df_{page}_{typology}_{datetime.now().strftime('%Y%m%d%H%M%S')}.parquet.gzip"
+    )
     output_file.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(output_file, compression="gzip")
+    print("save_to_parquet")
 
 
 def upload_file_s3(bucket_name: str, access_key: str, secret_key: str, kind: str = "json") -> None:
