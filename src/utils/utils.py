@@ -264,9 +264,6 @@ def imovirtual(url: str, typology: str, search: str, start_page: int, end_page: 
                     links.append(a_tag["href"])
 
             time.sleep(1)  # Respectful delay between requests
-            print(
-                f"Page {num} processed",
-            )
 
         except requests.exceptions.RequestException as e:
             logging.error(f"Request failed: {e}")
@@ -288,7 +285,6 @@ def remove_duplicates(data: dict) -> dict:
     """
     temp = {val: key for key, val in data.items()}
     res = {val: key for key, val in temp.items()}
-    print("remove_duplicates")
     return res
 
 
@@ -304,7 +300,6 @@ def json_to_list(json_file: str) -> list:
     """
     f = open(json_file)
     data = json.load(f)
-    print("json_to_list")
     return list(data.items())
 
 
@@ -318,7 +313,6 @@ def base_dataframe(json_file: list) -> DataFrame:
     Returns:
     - Dataframe
     """
-    print("base_dataframe")
     return pd.DataFrame(json_file, columns=["title", "url"])
 
 
@@ -336,7 +330,6 @@ def scrape_data(url: str, tag: str, class_name: str) -> list:
     """
     page = requests.get(url, headers=get_headers())
     soup = BeautifulSoup(page.content, "html.parser")
-    print("scrape_data")
     return [element.text.strip() for element in soup.find_all(tag, class_=class_name)]
 
 
@@ -433,7 +426,6 @@ def save_to_json(data: dict, page: str, typology: str) -> None:
     try:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
-            print("save_to_json")
     except Exception as e:
         logging.error(f"Error saving data to JSON: {e}")
 
@@ -453,7 +445,6 @@ def save_to_parquet(page: str, df: DataFrame, typology: str) -> None:
     )
     output_file.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(output_file, compression="gzip")
-    print("save_to_parquet")
 
 
 def upload_file_s3(bucket_name: str, access_key: str, secret_key: str, kind: str = "json") -> None:

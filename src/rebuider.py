@@ -111,9 +111,7 @@ if __name__ == "__main__":
     for pages in pages_to_scrape:
         try:
             logging.info(f"Processing {pages}")
-            print(f"Processing {pages}")
             main(pages)
         except Exception as e:
             logging.info(f"Error during processing '{pages}': {e}")
-            print(f"Error during processing '{pages}': {e}")
             continue
