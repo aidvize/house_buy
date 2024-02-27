@@ -8,6 +8,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import boto3
+import numpy as np
 import pandas as pd
 import psutil
 import requests
@@ -210,7 +211,7 @@ def get_page_number(url: str, typology: str) -> int:
     - max_pages (int): The number of the page for each typology.
     """
     values = []
-    full_url = f"{url}{typology}/?page=1"
+    full_url = f"{url}{typology}/?search[order]=created_at_first%3Adesc&page=1"
 
     response = requests.get(full_url, headers=get_headers())
     soup = BeautifulSoup(response.text, "html.parser")
@@ -229,24 +230,26 @@ def get_page_number(url: str, typology: str) -> int:
     return max_pages
 
 
-def imovirtual(url: str, typology: str) -> dict:
+def imovirtual(url: str, typology: str, search: str, start_page: int, end_page: int) -> dict:
     """
     Scrapes listing titles and links from Imovirtual website until no more listings are found.
 
     Parameters:
     - url (str): The base URL to scrape.
     - typology (str): The typology to scrape.
+    - search (str): The filter applied.
+    - start_page (int): The number of the initial page to scrape.
+    - end_page (int): The number of the final page to scrape.
 
     Returns:
     - data (dict): A dictionary with listing titles as keys and corresponding links.
     """
     title = []
     links = []
-    max_pages = get_page_number(url, typology)
 
-    for num in range(1, max_pages + 1):
+    for num in range(start_page, end_page + 1):
         try:
-            page = requests.get(f"{url}{typology}/?page={num}", headers=get_headers())
+            page = requests.get(f"{url}{typology}{search}{num}", headers=get_headers())
             soup = BeautifulSoup(page.text, "html.parser")
             span_tags = soup.find_all("span", class_="offer-item-title")
 
@@ -261,10 +264,6 @@ def imovirtual(url: str, typology: str) -> dict:
                     links.append(a_tag["href"])
 
             time.sleep(1)  # Respectful delay between requests
-            print(
-                f"Page {num} of {max_pages} processed",
-                f"{round((num / max_pages), 4) * 100}% remains for {typology}",
-            )
 
         except requests.exceptions.RequestException as e:
             logging.error(f"Request failed: {e}")
@@ -352,16 +351,59 @@ def intermediate_dataframe(df: DataFrame) -> DataFrame:
         "prices_m2": ("div", "css-1h1l5lm efcnut39"),
     }
 
-    # Initialize new columns to None
-    for column in data_mappings.keys():
-        df[column] = None
+    # Pre-define new columns to avoid dynamic assignment within the loop
+    new_columns = [
+        "full_address",
+        "prices",
+        "prices_m2",
+        "city",
+        "state",
+        "Área (m²)",
+        "Certificado Energético",
+        "Tipo",
+        "Ano de construção",
+        "Nº divisões",
+        "Condição",
+        "Acompanhamento Virtual",
+    ]
+    for col in new_columns:
+        df[col] = np.nan
 
-    # Update the DataFrame with scraped data for each URL
+    # Bulk scrape and process data
     for index, row in df.iterrows():
+        # Scrape once per URL and update DataFrame with all data mappings
+        url = row["url"]
+        response = requests.get(url, headers=get_headers())
+        soup = BeautifulSoup(response.content, "html.parser")
+
+        # Assuming scrape_data is a function that extracts data based on tag and class_name
+        # Here you would replace scrape_data with the actual scraping logic
         for key, (tag, class_name) in data_mappings.items():
-            df.at[index, key] = scrape_data(row["url"], tag, class_name)
-    df["prices_m2"].replace(" €/m²", "", inplace=True)
-    df["prices"].replace(" €", "", inplace=True)
+            element = soup.find(tag, class_=class_name)
+            if element:
+                df.at[index, key] = element.get_text(strip=True)
+
+        # Data extraction for the additional details
+        keys = [
+            k.get_text().strip(":") for k in soup.find_all("div", class_="css-o4i8bk e1qm3vsd1")
+        ]
+        values = [
+            v.get_text().strip() for v in soup.find_all("div", class_="css-1ytkscc e1qm3vsd3")
+        ]
+        extracted_data = dict(zip(keys, values))
+
+        # Update DataFrame
+        for key, value in extracted_data.items():
+            if key in df.columns:
+                df.at[index, key] = value
+
+    # Data cleaning
+    df["prices_m2"] = df["prices_m2"].str.replace(" €/m²", "", regex=True)
+    df["prices"] = df["prices"].str.replace(" €", "", regex=True)
+
+    # Address processing
+    df["city"] = df["full_address"].str.split(",").str[-2].str.strip()
+    df["state"] = df["full_address"].str.split(",").str[-1].str.strip()
     return df
 
 
@@ -388,7 +430,7 @@ def save_to_json(data: dict, page: str, typology: str) -> None:
         logging.error(f"Error saving data to JSON: {e}")
 
 
-def save_to_parquet(page: str, df: DataFrame, dest: str = "src/data/processed/") -> None:
+def save_to_parquet(page: str, df: DataFrame, typology: str) -> None:
     """
     Saves the given data to a PARQUET file.
 
@@ -398,7 +440,9 @@ def save_to_parquet(page: str, df: DataFrame, dest: str = "src/data/processed/")
     - dest (str): Path of the destination
     """
     df = pd.DataFrame(df)
-    output_file = Path(dest) / f"df_{page}.parquet.gzip"
+    output_file = Path(
+        f"data/processed/df_{page}_{typology}_{datetime.now().strftime('%Y%m%d%H%M%S')}.parquet.gzip"
+    )
     output_file.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(output_file, compression="gzip")
 
