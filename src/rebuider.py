@@ -1,11 +1,13 @@
 import logging
 import sys
+import time
 from pathlib import Path
 
 from utils import utils
 from utils.utils import (
     base_dataframe,
     configure_logging,
+    get_page_number,
     intermediate_dataframe,
     load_config,
     load_env,
@@ -36,7 +38,7 @@ def cred_parameters(page: str) -> tuple:
     bucket_name, aws_access_key, aws_secret_key = load_env()
     base_url = config["url"][page]
     search = config["search"][page]
-    typology = config["typology"][page][2]
+    typology = config["typology"][page][-1]
     return config, bucket_name, aws_access_key, aws_secret_key, base_url, search, typology
 
 
@@ -52,6 +54,7 @@ def extract(page: str) -> dict:
     Returns:
     - None
     """
+    # Extract credentials and parameters
     (
         config,
         bucket_name,
@@ -61,60 +64,46 @@ def extract(page: str) -> dict:
         search,
         typology,
     ) = cred_parameters(page)
+
+    # Determine the scraping function to use
     func_name = page
     func = getattr(utils, func_name, None)
 
     if func is None:
         logging.info(f"Function {func_name} not found in utils module.")
+        return {}
 
-    data = func(base_url, typology, search)
-    removed = remove_duplicates(data)
-    save_to_json(removed, page, typology)
-    upload_file_s3(bucket_name, aws_access_key, aws_secret_key)
-    return removed
+    max_pages = get_page_number(base_url, typology)
+    parts = 10
+    pages_per_part = max_pages // parts
+    all_data_dict = {}
 
+    for part in range(parts):
+        start_page = part * pages_per_part + 1
+        end_page = (start_page + pages_per_part) if part < parts - 1 else max_pages + 1
 
-@performance_metrics
-def transform(page: str, res: dict) -> None:
-    """
-    Executes the scraping function based on the specified page, saves the scraped
-    data to a JSON file, and uploads the JSON file to an AWS S3 bucket.
+        # Call the scraping function with the current range of pages
+        data = func(base_url, typology, search, start_page, end_page - 1)
 
-    Parameters:
-    - page (str): The name of the page or platform to scrape (e.g., 'imovirtual').
+        # Optional: Delay between parts to respect the server's load
+        time.sleep(1)
 
-    Returns:
-    - None
-    """
-    (
-        config,
-        bucket_name,
-        aws_access_key,
-        aws_secret_key,
-        base_url,
-        search,
-        typology,
-    ) = cred_parameters(page)
-    df = base_dataframe(list(res.items()))
-    df_enhanced = intermediate_dataframe(df)
-    save_to_parquet(page, df_enhanced, typology)
-    upload_file_s3(bucket_name, aws_access_key, aws_secret_key, "parquet")
+        # Process the collected data
+        removed = remove_duplicates(data)
+        # all_data_dict.update(removed)
+        save_to_json(removed, page, typology)
+        upload_file_s3(bucket_name, aws_access_key, aws_secret_key)
+
+        df = base_dataframe(list(removed.items()))
+        df_enhanced = intermediate_dataframe(df)
+        save_to_parquet(page, df_enhanced, typology)
+        upload_file_s3(bucket_name, aws_access_key, aws_secret_key, "parquet")
+    return all_data_dict
 
 
 def main(page: str):
     configure_logging()
-    (
-        config,
-        bucket_name,
-        aws_access_key,
-        aws_secret_key,
-        base_url,
-        search,
-        typology,
-    ) = cred_parameters(page)
-
-    extracted = extract(page)
-    transform(page, extracted)
+    extract(page)
 
 
 if __name__ == "__main__":
