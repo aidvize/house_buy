@@ -38,7 +38,7 @@ def cred_parameters(page: str) -> tuple:
     bucket_name, aws_access_key, aws_secret_key = load_env()
     base_url = config["url"][page]
     search = config["search"][page]
-    typology = config["typology"][page][-1]
+    typology = config["typology"][page]
     return config, bucket_name, aws_access_key, aws_secret_key, base_url, search, typology
 
 
