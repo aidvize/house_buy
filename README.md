@@ -13,14 +13,6 @@ Our project leverages several configuration files and scripts to streamline the 
 
 ## **Setting Up Your Development Environment**
 
-### Windows Users
-
-1. **Initialize Environment**: Run the `dev_setup.bat` script to create and activate a Conda environment named `house_buy`.
-   
-   ```cmd
-   .\dev_setup.bat
-   ```
-
 ### Unix-like Systems (macOS/Linux)
 
 1. **Prepare Script**: Ensure `dev_setup.sh` is executable.
@@ -92,6 +84,14 @@ The `pyproject.toml` file is used to configure Python tools for code formatting 
   
   ```bash
   isort .
+  ```
+
+  - **flake8**: Verify unused imports and variables.
+  
+  To run flake8, use:
+  
+  ```bash
+  flake8
   ```
 
 Make sure these commands are run within the project's root directory and your Conda environment is activated.
